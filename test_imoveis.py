@@ -4,83 +4,6 @@ import sqlite3
 import os
 
 
-def listar_todos_imoveis(db_path="imoveis.db"):
-    
-    if not os.path.exists(db_path):
-        raise FileNotFoundError(f"Database não encontrada: {db_path}")
-    
-    try:
-        # Conecta à database
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Query para buscar todos os imóveis
-        cursor.execute("""
-            SELECT id, logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao
-            FROM imoveis
-            ORDER BY id
-        """)
-        
-        # Busca todos os resultados
-        rows = cursor.fetchall()
-        
-        # Converte para lista de dicionários
-        imoveis = []
-        for row in rows:
-            imovel = {
-                'id': row[0],
-                'logradouro': row[1],
-                'tipo_logradouro': row[2],
-                'bairro': row[3],
-                'cidade': row[4],
-                'cep': row[5],
-                'tipo': row[6],
-                'valor': row[7],
-                'data_aquisicao': row[8]
-            }
-            imoveis.append(imovel)
-        
-        conn.close()
-        return imoveis
-        
-    except sqlite3.Error as e:
-        if 'conn' in locals():
-            conn.close()
-        raise Exception(f"Erro ao acessar a database: {e}")
-
-
-def exibir_todos_imoveis(db_path="imoveis.db"):
-    """
-    Exibe todos os imóveis e seus atributos da database de forma formatada
-    
-    Args:
-        db_path (str): Caminho para o arquivo da database
-    """
-    try:
-        imoveis = listar_todos_imoveis(db_path)
-        
-        if not imoveis:
-            print("Nenhum imóvel encontrado na database.")
-            return
-        
-        print(f"\n📋 LISTA DE TODOS OS IMÓVEIS ({len(imoveis)} encontrados)")
-        print("=" * 80)
-        
-        for imovel in imoveis:
-            print(f"\n🏠 ID: {imovel['id']}")
-            print(f"   Endereço: {imovel['tipo_logradouro']} {imovel['logradouro']}")
-            print(f"   Bairro: {imovel['bairro']}")
-            print(f"   Cidade: {imovel['cidade']}")
-            print(f"   CEP: {imovel['cep']}")
-            print(f"   Tipo: {imovel['tipo']}")
-            print(f"   Valor: R$ {imovel['valor']:,.2f}")
-            print(f"   Data de Aquisição: {imovel['data_aquisicao']}")
-            print("-" * 60)
-            
-    except Exception as e:
-        print(f"Erro ao exibir imóveis: {e}")
-
-
 def test_listar_imoveis():
     # Testa se a função retorna uma lista
     imoveis = listar_todos_imoveis()
@@ -97,21 +20,192 @@ def test_listar_imoveis():
 
 
 def test_listar_imoveis_id():
-    return
+    # Testa buscar um imóvel que existe
+    imovel = listar_imovel_por_id(1)
+    assert imovel is not None
+    assert imovel['id'] == 1
+    assert 'logradouro' in imovel
+    assert 'cidade' in imovel
+    
+    # Testa buscar um imóvel que não existe
+    imovel_inexistente = listar_imovel_por_id(99999)
+    assert imovel_inexistente is None
+    
+    # Testa se retorna o imóvel correto
+    imovel_especifico = listar_imovel_por_id(5)
+    assert imovel_especifico is not None
+    assert imovel_especifico['id'] == 5
 
 
 def test_novo_imovel():
-    return
+    # Conta quantos imóveis existem antes da inserção
+    imoveis_antes = listar_todos_imoveis()
+    count_antes = len(imoveis_antes)
+    
+    # Insere um novo imóvel
+    novo_id = inserir_imovel(
+        logradouro="Rua de Teste",
+        tipo_logradouro="Rua",
+        bairro="Bairro Teste",
+        cidade="Cidade Teste",
+        cep="12345-678",
+        tipo="casa",
+        valor=500000.00,
+        data_aquisicao="2024-01-01"
+    )
+    
+    # Verifica se o ID foi retornado
+    assert novo_id is not None
+    assert isinstance(novo_id, int)
+    
+    # Verifica se o imóvel foi inserido
+    imovel_inserido = listar_imovel_por_id(novo_id)
+    assert imovel_inserido is not None
+    assert imovel_inserido['logradouro'] == "Rua de Teste"
+    assert imovel_inserido['cidade'] == "Cidade Teste"
+    assert imovel_inserido['tipo'] == "casa"
+    
+    # Verifica se o número de imóveis aumentou
+    imoveis_depois = listar_todos_imoveis()
+    count_depois = len(imoveis_depois)
+    assert count_depois == count_antes + 1
+    
+    # Remove o imóvel teste para não afetar outros testes
+    deletar_imovel(novo_id)
+
+
+def test_atualizar_imovel():
+    # Insere um imóvel para testar a atualização
+    teste_id = inserir_imovel(
+        logradouro="Rua Original",
+        tipo_logradouro="Rua",
+        bairro="Bairro Original",
+        cidade="Cidade Original",
+        cep="11111-111",
+        tipo="casa",
+        valor=400000.00,
+        data_aquisicao="2023-01-01"
+    )
+    
+    # Verifica se o imóvel foi inserido
+    imovel_original = listar_imovel_por_id(teste_id)
+    assert imovel_original is not None
+    assert imovel_original['logradouro'] == "Rua Original"
+    assert imovel_original['valor'] == 400000.00
+    
+    # Testa atualização de um campo único (logradouro)
+    resultado = atualizar_imovel(teste_id, logradouro="Rua Atualizada")
+    assert resultado is True
+    
+    # Verifica se a atualização foi aplicada
+    imovel_atualizado = listar_imovel_por_id(teste_id)
+    assert imovel_atualizado['logradouro'] == "Rua Atualizada"
+    assert imovel_atualizado['cidade'] == "Cidade Original"  # Outros campos inalterados
+    
+    # Testa atualização de múltiplos campos
+    resultado = atualizar_imovel(
+        teste_id, 
+        cidade="Cidade Nova",
+        valor=550000.00,
+        tipo="apartamento"
+    )
+    assert resultado is True
+    
+    # Verifica as múltiplas atualizações
+    imovel_multi_atualizado = listar_imovel_por_id(teste_id)
+    assert imovel_multi_atualizado['cidade'] == "Cidade Nova"
+    assert imovel_multi_atualizado['valor'] == 550000.00
+    assert imovel_multi_atualizado['tipo'] == "apartamento"
+    assert imovel_multi_atualizado['logradouro'] == "Rua Atualizada"  # Mantém atualização anterior
+    
+    # Testa atualização de imóvel inexistente
+    resultado_inexistente = atualizar_imovel(99999, logradouro="Teste Falha")
+    assert resultado_inexistente is False
+    
+    # Testa chamada sem parâmetros de atualização
+    resultado_vazio = atualizar_imovel(teste_id)
+    assert resultado_vazio is False
+    
+    # Remove o imóvel teste para não afetar outros testes
+    deletar_imovel(teste_id)
 
 
 def test_del_imovel():
-    return
+    # Insere um imóvel para testar a deleção
+    teste_id = inserir_imovel(
+        logradouro="Rua Para Deletar",
+        tipo_logradouro="Rua",
+        bairro="Bairro Teste",
+        cidade="Cidade Teste",
+        cep="99999-999",
+        tipo="apartamento",
+        valor=300000.00,
+        data_aquisicao="2024-01-01"
+    )
+    
+    # Verifica se o imóvel foi inserido
+    imovel_existe = listar_imovel_por_id(teste_id)
+    assert imovel_existe is not None
+    
+    # Deleta o imóvel
+    resultado = deletar_imovel(teste_id)
+    assert resultado is True
+    
+    # Verifica se o imóvel foi deletado
+    imovel_deletado = listar_imovel_por_id(teste_id)
+    assert imovel_deletado is None
+    
+    # Tenta deletar um imóvel que não existe
+    resultado_inexistente = deletar_imovel(99999)
+    assert resultado_inexistente is False
 
 
 def test_listar_imoveis_tipo():
-    return
+    # Testa listar imóveis do tipo "casa"
+    casas = listar_imoveis_por_tipo("casa")
+    assert isinstance(casas, list)
+    
+    # Se existem casas, verifica se todas são do tipo "casa"
+    if len(casas) > 0:
+        for casa in casas:
+            assert casa['tipo'] == "casa"
+            assert 'id' in casa
+            assert 'logradouro' in casa
+    
+    # Testa listar imóveis do tipo "apartamento"
+    apartamentos = listar_imoveis_por_tipo("apartamento")
+    assert isinstance(apartamentos, list)
+    
+    if len(apartamentos) > 0:
+        for apartamento in apartamentos:
+            assert apartamento['tipo'] == "apartamento"
+    
+    # Testa tipo que não existe
+    inexistentes = listar_imoveis_por_tipo("mansao")
+    assert isinstance(inexistentes, list)
+    assert len(inexistentes) == 0
 
 
 def test_listar_imoveis_cidade():
-    return
-
+    # Primeiro, pega todas as cidades disponíveis
+    todos_imoveis = listar_todos_imoveis()
+    assert len(todos_imoveis) > 0
+    
+    # Pega a cidade do primeiro imóvel
+    cidade_teste = todos_imoveis[0]['cidade']
+    
+    # Lista imóveis dessa cidade
+    imoveis_cidade = listar_imoveis_por_cidade(cidade_teste)
+    assert isinstance(imoveis_cidade, list)
+    assert len(imoveis_cidade) > 0
+    
+    # Verifica se todos os imóveis são da cidade correta
+    for imovel in imoveis_cidade:
+        assert imovel['cidade'] == cidade_teste
+        assert 'id' in imovel
+        assert 'logradouro' in imovel
+    
+    # Testa cidade que não existe
+    cidade_inexistente = listar_imoveis_por_cidade("Cidade Inexistente")
+    assert isinstance(cidade_inexistente, list)
+    assert len(cidade_inexistente) == 0
