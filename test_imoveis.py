@@ -1,18 +1,17 @@
 import pytest
-import json
-import sqlite3
-import os
+from func import *
+
 
 
 def test_listar_imoveis():
-    # Testa se a função retorna uma lista
+    # Testa se retorna lista
     imoveis = listar_todos_imoveis()
     assert isinstance(imoveis, list)
     
-    # Testa se há imóveis na database
+    # Testa se tem imóveis
     assert len(imoveis) > 0
     
-    # Testa se cada imóvel tem os atributos necessários
+    # Testa atributos
     imovel = imoveis[0]
     required_keys = ['id', 'logradouro', 'tipo_logradouro', 'bairro', 'cidade', 'cep', 'tipo', 'valor', 'data_aquisicao']
     for key in required_keys:
@@ -20,29 +19,29 @@ def test_listar_imoveis():
 
 
 def test_listar_imoveis_id():
-    # Testa buscar um imóvel que existe
+    # Testa buscar imóvel
     imovel = listar_imovel_por_id(1)
     assert imovel is not None
     assert imovel['id'] == 1
     assert 'logradouro' in imovel
     assert 'cidade' in imovel
     
-    # Testa buscar um imóvel que não existe
+    # Testa buscar imóvel não existe
     imovel_inexistente = listar_imovel_por_id(99999)
     assert imovel_inexistente is None
     
-    # Testa se retorna o imóvel correto
+    # Testa retorna imóvel
     imovel_especifico = listar_imovel_por_id(5)
     assert imovel_especifico is not None
     assert imovel_especifico['id'] == 5
 
 
 def test_novo_imovel():
-    # Conta quantos imóveis existem antes da inserção
+    # Conta quantos imóveis existem antes
     imoveis_antes = listar_todos_imoveis()
     count_antes = len(imoveis_antes)
     
-    # Insere um novo imóvel
+    # Insere um novo
     novo_id = inserir_imovel(
         logradouro="Rua de Teste",
         tipo_logradouro="Rua",
@@ -54,28 +53,28 @@ def test_novo_imovel():
         data_aquisicao="2024-01-01"
     )
     
-    # Verifica se o ID foi retornado
+    # Verifica o ID
     assert novo_id is not None
     assert isinstance(novo_id, int)
     
-    # Verifica se o imóvel foi inserido
+    # Verifica se foi inserido
     imovel_inserido = listar_imovel_por_id(novo_id)
     assert imovel_inserido is not None
     assert imovel_inserido['logradouro'] == "Rua de Teste"
     assert imovel_inserido['cidade'] == "Cidade Teste"
     assert imovel_inserido['tipo'] == "casa"
     
-    # Verifica se o número de imóveis aumentou
+    # Verifica se o número aumentou
     imoveis_depois = listar_todos_imoveis()
     count_depois = len(imoveis_depois)
     assert count_depois == count_antes + 1
     
-    # Remove o imóvel teste para não afetar outros testes
+    # Remove o teste
     deletar_imovel(novo_id)
 
 
 def test_atualizar_imovel():
-    # Insere um imóvel para testar a atualização
+    # Insere um teste
     teste_id = inserir_imovel(
         logradouro="Rua Original",
         tipo_logradouro="Rua",
@@ -87,22 +86,22 @@ def test_atualizar_imovel():
         data_aquisicao="2023-01-01"
     )
     
-    # Verifica se o imóvel foi inserido
+    # Verifica o imóvel
     imovel_original = listar_imovel_por_id(teste_id)
     assert imovel_original is not None
     assert imovel_original['logradouro'] == "Rua Original"
     assert imovel_original['valor'] == 400000.00
     
-    # Testa atualização de um campo único (logradouro)
+    # Testa atualização de um campo
     resultado = atualizar_imovel(teste_id, logradouro="Rua Atualizada")
     assert resultado is True
     
-    # Verifica se a atualização foi aplicada
+    # Verifica a atualização
     imovel_atualizado = listar_imovel_por_id(teste_id)
     assert imovel_atualizado['logradouro'] == "Rua Atualizada"
     assert imovel_atualizado['cidade'] == "Cidade Original"  # Outros campos inalterados
     
-    # Testa atualização de múltiplos campos
+    # Testa atualização de muitos campos
     resultado = atualizar_imovel(
         teste_id, 
         cidade="Cidade Nova",
@@ -111,7 +110,7 @@ def test_atualizar_imovel():
     )
     assert resultado is True
     
-    # Verifica as múltiplas atualizações
+    # Verifica as atualizações
     imovel_multi_atualizado = listar_imovel_por_id(teste_id)
     assert imovel_multi_atualizado['cidade'] == "Cidade Nova"
     assert imovel_multi_atualizado['valor'] == 550000.00
@@ -122,11 +121,11 @@ def test_atualizar_imovel():
     resultado_inexistente = atualizar_imovel(99999, logradouro="Teste Falha")
     assert resultado_inexistente is False
     
-    # Testa chamada sem parâmetros de atualização
+    # Testa chamada sem parâmetros
     resultado_vazio = atualizar_imovel(teste_id)
     assert resultado_vazio is False
     
-    # Remove o imóvel teste para não afetar outros testes
+    # Remove o teste
     deletar_imovel(teste_id)
 
 
