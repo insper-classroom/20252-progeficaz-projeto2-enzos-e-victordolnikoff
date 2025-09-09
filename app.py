@@ -1,7 +1,10 @@
 from flask import Flask, jsonify, request
 from func import *
-import sqlite3
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
