@@ -4,8 +4,6 @@ Simple test script to verify the API is working with MySQL
 """
 
 import requests
-import json
-import sys
 from dotenv import load_dotenv
 
 # Load environment variables
