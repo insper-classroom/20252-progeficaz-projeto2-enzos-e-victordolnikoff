@@ -380,14 +380,5 @@ def health_check():
 
 if __name__ == '__main__':
 
-    print("   GET    /                     - Informações da API")
-    print("   GET    /imoveis              - Listar todos os imóveis") 
-    print("   GET    /imoveis/<id>         - Obter imóvel por ID")
-    print("   POST   /imoveis              - Criar novo imóvel")
-    print("   PUT    /imoveis/<id>         - Atualizar imóvel")
-    print("   DELETE /imoveis/<id>         - Remover imóvel")
-    print("   GET    /imoveis/tipo/<tipo>  - Listar por tipo")
-    print("   GET    /imoveis/cidade/<cidade> - Listar por cidade")
-    print("   GET    /health               - Health check")
-    
+
     app.run(debug=True, host='0.0.0.0', port=5000)
