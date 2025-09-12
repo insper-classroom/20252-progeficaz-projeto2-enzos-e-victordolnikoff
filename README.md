@@ -20,7 +20,7 @@ Uma API RESTful completa para gerenciamento de imóveis de uma empresa imobiliá
 ## 🛠️ Tecnologias Utilizadas
 
 - **Flask** - Framework web Python
-- **SQLite** - Banco de dados (compatível com MySQL)
+- **MySQL** - Banco de dados
 - **pytest** - Framework de testes
 - **JSON** - Formato de resposta
 - **TDD** - Test-Driven Development
@@ -119,7 +119,6 @@ curl -X GET http://localhost:5000/imoveis/1
 ├── 📄 README_API.md        # Documentação completa da API
 ├── 📄 DEPLOY_AWS.md        # Instruções de deploy na AWS
 ├── 📄 PROJETO_COMPLETO.md  # Resumo do projeto
-├── 🗃️ imoveis.db           # Banco de dados SQLite
 ├── 📄 imoveis.sql          # Script de criação do banco
 └── 📄 README.md            # Este arquivo
 ```

@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request
 from func import *
-import sqlite3
 import os
 
 app = Flask(__name__)
@@ -380,13 +379,6 @@ def health_check():
         }), 500
 
 if __name__ == '__main__':
-    # Verificar se o banco de dados existe
-    if not os.path.exists('imoveis.db'):
-        print("  Banco de dados 'imoveis.db' não encontrado!")
-        print("   Execute o script SQL para criar o banco antes de iniciar a API")
-    else:
-        print("Funcionando")
-    
 
     print("   GET    /                     - Informações da API")
     print("   GET    /imoveis              - Listar todos os imóveis") 

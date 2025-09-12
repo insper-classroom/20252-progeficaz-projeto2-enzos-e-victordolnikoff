@@ -1,8 +1,6 @@
 import mysql.connector
 from mysql.connector import Error as MySQLError
 from database_config import DatabaseConfig
-import sqlite3
-import os
 
 
 def get_database_connection():
