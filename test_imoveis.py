@@ -1,9 +1,5 @@
 import pytest
 from func import *
-from dotenv import load_dotenv
-
-# Load environment variables for tests
-load_dotenv()
 
 
 

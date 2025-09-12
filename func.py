@@ -1,6 +1,8 @@
 import mysql.connector
 from mysql.connector import Error as MySQLError
 from database_config import DatabaseConfig
+import sqlite3
+import os
 
 
 def get_database_connection():
@@ -96,31 +98,35 @@ def listar_todos_imoveis():
     return imoveis
 
 
-def listar_imovel_por_id(imovel_id):
+def listar_imovel_por_id(imovel_id, db_path="imoveis.db"):
     """
     Busca um imóvel específico pelo ID
     
     Args:
         imovel_id (int): ID do imóvel a ser buscado
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         dict or None: Dicionário com os dados do imóvel ou None se não encontrado
     """
-    query = """
-        SELECT id, logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao
-        FROM imoveis
-        WHERE id = %s
-    """
-    
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     try:
-        cursor.execute(query, (imovel_id,))
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao
+            FROM imoveis
+            WHERE id = ?
+        """, (imovel_id,))
+        
         row = cursor.fetchone()
+        conn.close()
         
         if row:
-            result = {
+            return {
                 'id': row[0],
                 'logradouro': row[1],
                 'tipo_logradouro': row[2],
@@ -128,22 +134,18 @@ def listar_imovel_por_id(imovel_id):
                 'cidade': row[4],
                 'cep': row[5],
                 'tipo': row[6],
-                'valor': float(row[7]) if row[7] is not None else None,
+                'valor': row[7],
                 'data_aquisicao': row[8]
             }
-        else:
-            result = None
-            
-        return result
+        return None
         
-    except MySQLError as e:
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.close()
         raise Exception(f"Erro ao acessar a database: {e}")
-    finally:
-        cursor.close()
-        conn.close()
 
 
-def inserir_imovel(logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao):
+def inserir_imovel(logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao, db_path="imoveis.db"):
     """
     Insere um novo imóvel na database
     
@@ -156,84 +158,94 @@ def inserir_imovel(logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor
         tipo (str): Tipo do imóvel (casa, apartamento, etc.)
         valor (float): Valor do imóvel
         data_aquisicao (str): Data de aquisição no formato YYYY-MM-DD
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         int: ID do imóvel inserido
     """
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     try:
-        query = """
-            INSERT INTO imoveis (logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
         
-        cursor.execute(query, (logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao))
+        cursor.execute("""
+            INSERT INTO imoveis (logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao))
+        
         imovel_id = cursor.lastrowid
         conn.commit()
+        conn.close()
         
         return imovel_id
         
-    except MySQLError as e:
-        conn.rollback()
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.rollback()
+            conn.close()
         raise Exception(f"Erro ao inserir imóvel: {e}")
-    finally:
-        cursor.close()
-        conn.close()
 
 
-def deletar_imovel(imovel_id):
+def deletar_imovel(imovel_id, db_path="imoveis.db"):
     """
     Remove um imóvel da database pelo ID
     
     Args:
         imovel_id (int): ID do imóvel a ser removido
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         bool: True se o imóvel foi removido, False se não foi encontrado
     """
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     try:
-        query = "DELETE FROM imoveis WHERE id = %s"
-        cursor.execute(query, (imovel_id,))
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM imoveis WHERE id = ?", (imovel_id,))
+        
         rows_affected = cursor.rowcount
         conn.commit()
+        conn.close()
         
         return rows_affected > 0
         
-    except MySQLError as e:
-        conn.rollback()
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.rollback()
+            conn.close()
         raise Exception(f"Erro ao deletar imóvel: {e}")
-    finally:
-        cursor.close()
-        conn.close()
 
 
-def listar_imoveis_por_tipo(tipo_imovel):
+def listar_imoveis_por_tipo(tipo_imovel, db_path="imoveis.db"):
     """
     Lista todos os imóveis de um tipo específico
     
     Args:
         tipo_imovel (str): Tipo do imóvel (casa, apartamento, terreno, casa em condominio)
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         list: Lista de dicionários com os imóveis do tipo especificado
     """
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     try:
-        query = """
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
             SELECT id, logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao
             FROM imoveis
-            WHERE tipo = %s
+            WHERE tipo = ?
             ORDER BY id
-        """
+        """, (tipo_imovel,))
         
-        cursor.execute(query, (tipo_imovel,))
         rows = cursor.fetchall()
         
         imoveis = []
@@ -246,42 +258,45 @@ def listar_imoveis_por_tipo(tipo_imovel):
                 'cidade': row[4],
                 'cep': row[5],
                 'tipo': row[6],
-                'valor': float(row[7]) if row[7] is not None else None,
+                'valor': row[7],
                 'data_aquisicao': row[8]
             }
             imoveis.append(imovel)
         
+        conn.close()
         return imoveis
         
-    except MySQLError as e:
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.close()
         raise Exception(f"Erro ao acessar a database: {e}")
-    finally:
-        cursor.close()
-        conn.close()
 
 
-def listar_imoveis_por_cidade(cidade):
+def listar_imoveis_por_cidade(cidade, db_path="imoveis.db"):
     """
     Lista todos os imóveis de uma cidade específica
     
     Args:
         cidade (str): Nome da cidade
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         list: Lista de dicionários com os imóveis da cidade especificada
     """
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     try:
-        query = """
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
             SELECT id, logradouro, tipo_logradouro, bairro, cidade, cep, tipo, valor, data_aquisicao
             FROM imoveis
-            WHERE cidade = %s
+            WHERE cidade = ?
             ORDER BY id
-        """
+        """, (cidade,))
         
-        cursor.execute(query, (cidade,))
         rows = cursor.fetchall()
         
         imoveis = []
@@ -294,22 +309,22 @@ def listar_imoveis_por_cidade(cidade):
                 'cidade': row[4],
                 'cep': row[5],
                 'tipo': row[6],
-                'valor': float(row[7]) if row[7] is not None else None,
+                'valor': row[7],
                 'data_aquisicao': row[8]
             }
             imoveis.append(imovel)
         
+        conn.close()
         return imoveis
         
-    except MySQLError as e:
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.close()
         raise Exception(f"Erro ao acessar a database: {e}")
-    finally:
-        cursor.close()
-        conn.close()
 
 
 def atualizar_imovel(imovel_id, logradouro=None, tipo_logradouro=None, bairro=None, 
-                    cidade=None, cep=None, tipo=None, valor=None, data_aquisicao=None):
+                    cidade=None, cep=None, tipo=None, valor=None, data_aquisicao=None, db_path="imoveis.db"):
     """
     Atualiza os dados de um imóvel existente na database
     
@@ -323,40 +338,41 @@ def atualizar_imovel(imovel_id, logradouro=None, tipo_logradouro=None, bairro=No
         tipo (str, optional): Novo tipo do imóvel
         valor (float, optional): Novo valor do imóvel
         data_aquisicao (str, optional): Nova data de aquisição
+        db_path (str): Caminho para o arquivo da database
         
     Returns:
         bool: True se o imóvel foi atualizado, False se não foi encontrado
     """
-    conn = get_database_connection()
-    cursor = conn.cursor()
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database não encontrada: {db_path}")
     
     # Constrói a query dinamicamente baseado nos campos fornecidos
     campos_atualizacao = []
     valores = []
     
     if logradouro is not None:
-        campos_atualizacao.append("logradouro = %s")
+        campos_atualizacao.append("logradouro = ?")
         valores.append(logradouro)
     if tipo_logradouro is not None:
-        campos_atualizacao.append("tipo_logradouro = %s")
+        campos_atualizacao.append("tipo_logradouro = ?")
         valores.append(tipo_logradouro)
     if bairro is not None:
-        campos_atualizacao.append("bairro = %s")
+        campos_atualizacao.append("bairro = ?")
         valores.append(bairro)
     if cidade is not None:
-        campos_atualizacao.append("cidade = %s")
+        campos_atualizacao.append("cidade = ?")
         valores.append(cidade)
     if cep is not None:
-        campos_atualizacao.append("cep = %s")
+        campos_atualizacao.append("cep = ?")
         valores.append(cep)
     if tipo is not None:
-        campos_atualizacao.append("tipo = %s")
+        campos_atualizacao.append("tipo = ?")
         valores.append(tipo)
     if valor is not None:
-        campos_atualizacao.append("valor = %s")
+        campos_atualizacao.append("valor = ?")
         valores.append(valor)
     if data_aquisicao is not None:
-        campos_atualizacao.append("data_aquisicao = %s")
+        campos_atualizacao.append("data_aquisicao = ?")
         valores.append(data_aquisicao)
     
     # Se nenhum campo foi fornecido para atualização
@@ -367,17 +383,20 @@ def atualizar_imovel(imovel_id, logradouro=None, tipo_logradouro=None, bairro=No
     valores.append(imovel_id)
     
     try:
-        query = f"UPDATE imoveis SET {', '.join(campos_atualizacao)} WHERE id = %s"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        query = f"UPDATE imoveis SET {', '.join(campos_atualizacao)} WHERE id = ?"
         cursor.execute(query, valores)
         
         rows_affected = cursor.rowcount
         conn.commit()
+        conn.close()
         
         return rows_affected > 0
         
-    except MySQLError as e:
-        conn.rollback()
+    except sqlite3.Error as e:
+        if 'conn' in locals():
+            conn.rollback()
+            conn.close()
         raise Exception(f"Erro ao atualizar imóvel: {e}")
-    finally:
-        cursor.close()
-        conn.close()
