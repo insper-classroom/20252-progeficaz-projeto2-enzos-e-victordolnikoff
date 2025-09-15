@@ -196,7 +196,7 @@ def handle_database_error(e):
 # Função auxiliar para validações
 def validate_imovel_data(data, is_update=False):
     """Valida os dados do imóvel e retorna erros se houver"""
-    tipos_validos = ['casa', 'apartamento', 'terreno', 'comercial', 'industrial']
+    tipos_validos = ['casa', 'apartamento', 'terreno',"casa em condominio"]
     
     # Validar CEP se fornecido
     if 'cep' in data:
