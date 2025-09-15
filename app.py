@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from func import *
-import os
+import re
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -32,6 +33,136 @@ def internal_error(error):
         'message': 'Ocorreu um erro inesperado no servidor',
         'status': 500
     }), 500
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({
+        'error': 'Método não permitido',
+        'message': 'O método HTTP usado não é permitido para este endpoint',
+        'status': 405
+    }), 405
+
+@app.errorhandler(409)
+def conflict(error):
+    return jsonify({
+        'error': 'Conflito',
+        'message': 'A requisição não pôde ser processada devido a conflito com o estado atual do recurso',
+        'status': 409
+    }), 409
+
+@app.errorhandler(422)
+def unprocessable_entity(error):
+    return jsonify({
+        'error': 'Entidade não processável',
+        'message': 'A requisição está bem formada, mas não pôde ser processada devido a erros semânticos',
+        'status': 422
+    }), 422
+
+@app.errorhandler(503)
+def service_unavailable(error):
+    return jsonify({
+        'error': 'Serviço indisponível',
+        'message': 'O servidor não está disponível temporariamente. Tente novamente mais tarde',
+        'status': 503
+    }), 503
+
+# Função auxiliar para tratamento de erros de banco de dados
+def handle_database_error(e):
+    """Trata erros de banco de dados e retorna a resposta apropriada"""
+    error_message = str(e).lower()
+    
+    # Erros de conexão com banco de dados
+    if any(keyword in error_message for keyword in ['connection', 'timeout', 'refused', 'unreachable']):
+        return jsonify({
+            'success': False,
+            'error': 'Serviço de banco de dados indisponível',
+            'message': 'Não foi possível conectar ao banco de dados. Tente novamente mais tarde.',
+            'details': str(e)
+        }), 503
+    
+    # Erros de constraint/integridade (duplicatas, violações de chave)
+    elif any(keyword in error_message for keyword in ['duplicate', 'constraint', 'integrity', 'unique']):
+        return jsonify({
+            'success': False,
+            'error': 'Conflito de dados',
+            'message': 'Os dados fornecidos conflitam com registros existentes',
+            'details': str(e)
+        }), 409
+    
+    # Erros gerais do servidor
+    else:
+        return jsonify({
+            'success': False,
+            'error': 'Erro interno do servidor',
+            'message': 'Ocorreu um erro inesperado no servidor',
+            'details': str(e)
+        }), 500
+
+# Função auxiliar para validações
+def validate_imovel_data(data, is_update=False):
+    """Valida os dados do imóvel e retorna erros se houver"""
+    tipos_validos = ['casa', 'apartamento', 'terreno', 'comercial', 'industrial']
+    
+    # Validar CEP se fornecido
+    if 'cep' in data:
+        cep = str(data['cep']).strip().replace('-', '').replace('.', '')
+        if not re.match(r'^\d{8}$', cep):
+            return {
+                'success': False,
+                'error': 'CEP inválido',
+                'message': 'CEP deve conter 8 dígitos numéricos (formato: 12345678 ou 12345-678)'
+            }, 422
+    
+    # Validar tipo se fornecido
+    if 'tipo' in data:
+        if str(data['tipo']).strip().lower() not in tipos_validos:
+            return {
+                'success': False,
+                'error': 'Tipo de imóvel inválido',
+                'message': f'Tipo deve ser um dos seguintes: {", ".join(tipos_validos)}'
+            }, 422
+    
+    # Validar data de aquisição se fornecida
+    if 'data_aquisicao' in data:
+        try:
+            data_aquisicao = str(data['data_aquisicao']).strip()
+            datetime.strptime(data_aquisicao, '%Y-%m-%d')
+        except ValueError:
+            return {
+                'success': False,
+                'error': 'Data de aquisição inválida',
+                'message': 'Data deve estar no formato YYYY-MM-DD (ex: 2024-01-15)'
+            }, 422
+    
+    # Validar valor se fornecido
+    if 'valor' in data:
+        try:
+            valor = float(data['valor'])
+            if valor < 0:
+                return {
+                    'success': False,
+                    'error': 'Valor inválido',
+                    'message': 'O valor deve ser um número positivo'
+                }, 422
+        except (ValueError, TypeError):
+            return {
+                'success': False,
+                'error': 'Valor inválido',
+                'message': 'O valor deve ser um número válido'
+            }, 422
+    
+    # Validar campos vazios para operações de atualização
+    if is_update:
+        empty_text_fields = ['logradouro', 'tipo_logradouro', 'bairro', 'cidade']
+        for field in empty_text_fields:
+            if field in data and not str(data[field]).strip():
+                return {
+                    'success': False,
+                    'error': 'Campo vazio',
+                    'message': f'{field.replace("_", " ").title()} não pode estar vazio'
+                }, 422
+    
+    return None, None
 
 # Rota raiz para informações da API
 @app.route('/', methods=['GET'])
@@ -72,14 +203,10 @@ def listar_todos_imoveis_route():
             'success': False,
             'error': 'Database não encontrada',
             'message': str(e)
-        }), 500
+        }), 503
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 2. Listar imóvel específico por ID
 @app.route('/imoveis/<int:imovel_id>', methods=['GET'])
@@ -102,11 +229,7 @@ def obter_imovel_por_id_route(imovel_id):
         }), 200
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 3. Adicionar novo imóvel
 @app.route('/imoveis', methods=['POST'])
@@ -133,23 +256,21 @@ def criar_imovel_route():
                 'error': 'Campos obrigatórios ausentes',
                 'message': f'Os seguintes campos são obrigatórios: {", ".join(missing_fields)}',
                 'required_fields': required_fields
-            }), 400
+            }), 422
         
-        # Validar tipos de dados
-        try:
-            valor = float(data['valor'])
-            if valor < 0:
-                return jsonify({
-                    'success': False,
-                    'error': 'Valor inválido',
-                    'message': 'O valor deve ser um número positivo'
-                }), 400
-        except (ValueError, TypeError):
+        # Validar se os campos de texto não estão vazios
+        empty_fields = [field for field in required_fields[:-2] if not str(data.get(field, '')).strip()]
+        if empty_fields:
             return jsonify({
                 'success': False,
-                'error': 'Valor inválido',
-                'message': 'O valor deve ser um número válido'
-            }), 400
+                'error': 'Campos vazios detectados',
+                'message': f'Os seguintes campos não podem estar vazios: {", ".join(empty_fields)}'
+            }), 422
+        
+        # Usar função de validação centralizada
+        error_response, status_code = validate_imovel_data(data)
+        if error_response:
+            return jsonify(error_response), status_code
         
         # Inserir imóvel
         novo_id = inserir_imovel(
@@ -158,8 +279,8 @@ def criar_imovel_route():
             bairro=str(data['bairro']).strip(),
             cidade=str(data['cidade']).strip(),
             cep=str(data['cep']).strip(),
-            tipo=str(data['tipo']).strip(),
-            valor=valor,
+            tipo=str(data['tipo']).strip().lower(),
+            valor=float(data['valor']),
             data_aquisicao=str(data['data_aquisicao']).strip()
         )
         
@@ -173,11 +294,7 @@ def criar_imovel_route():
         }), 201
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 4. Atualizar imóvel existente
 @app.route('/imoveis/<int:imovel_id>', methods=['PUT'])
@@ -203,6 +320,11 @@ def atualizar_imovel_route(imovel_id):
             
         data = request.get_json()
         
+        # Usar função de validação centralizada
+        error_response, status_code = validate_imovel_data(data, is_update=True)
+        if error_response:
+            return jsonify(error_response), status_code
+        
         # Preparar argumentos para atualização (apenas campos fornecidos)
         update_args = {}
         
@@ -217,27 +339,11 @@ def atualizar_imovel_route(imovel_id):
         if 'cep' in data:
             update_args['cep'] = str(data['cep']).strip()
         if 'tipo' in data:
-            update_args['tipo'] = str(data['tipo']).strip()
+            update_args['tipo'] = str(data['tipo']).strip().lower()
         if 'data_aquisicao' in data:
             update_args['data_aquisicao'] = str(data['data_aquisicao']).strip()
-            
-        # Validar valor se fornecido
         if 'valor' in data:
-            try:
-                valor = float(data['valor'])
-                if valor < 0:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Valor inválido',
-                        'message': 'O valor deve ser um número positivo'
-                    }), 400
-                update_args['valor'] = valor
-            except (ValueError, TypeError):
-                return jsonify({
-                    'success': False,
-                    'error': 'Valor inválido',
-                    'message': 'O valor deve ser um número válido'
-                }), 400
+            update_args['valor'] = float(data['valor'])
         
         # Verificar se há campos para atualizar
         if not update_args:
@@ -245,7 +351,7 @@ def atualizar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Nenhum campo para atualizar',
                 'message': 'Pelo menos um campo deve ser fornecido para atualização'
-            }), 400
+            }), 422
         
         # Atualizar imóvel
         sucesso = atualizar_imovel(imovel_id, **update_args)
@@ -267,11 +373,7 @@ def atualizar_imovel_route(imovel_id):
         }), 200
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 5. Remover imóvel
 @app.route('/imoveis/<int:imovel_id>', methods=['DELETE'])
@@ -304,11 +406,7 @@ def deletar_imovel_route(imovel_id):
         }), 200
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 6. Listar imóveis por tipo
 @app.route('/imoveis/tipo/<tipo>', methods=['GET'])
@@ -328,11 +426,7 @@ def listar_imoveis_por_tipo_route(tipo):
         }), 200
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # 7. Listar imóveis por cidade
 @app.route('/imoveis/cidade/<cidade>', methods=['GET'])
@@ -352,11 +446,7 @@ def listar_imoveis_por_cidade_route(cidade):
         }), 200
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'message': str(e)
-        }), 500
+        return handle_database_error(e)
 
 # Rota para verificar health da API
 @app.route('/health', methods=['GET'])
@@ -376,8 +466,7 @@ def health_check():
             'status': 'unhealthy',
             'message': 'Problemas na API',
             'error': str(e)
-        }), 500
+        }), 503
 
 if __name__ == '__main__':
-
     app.run(debug=True, host='0.0.0.0', port=5000)
