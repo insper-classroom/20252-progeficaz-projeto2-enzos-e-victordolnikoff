@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, url_for
 from func import *
 import re
 from datetime import datetime
@@ -8,6 +8,101 @@ app = Flask(__name__)
 # Configurações
 app.config['JSON_SORT_KEYS'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
+
+# HATEOAS Helper Functions
+def build_imovel_links(imovel_id, include_collection=True):
+    """Build hypermedia links for a single imovel resource"""
+    links = {
+        'self': {
+            'href': url_for('obter_imovel_por_id_route', imovel_id=imovel_id, _external=True),
+            'method': 'GET',
+            'title': 'Obter detalhes deste imóvel'
+        },
+        'edit': {
+            'href': url_for('atualizar_imovel_route', imovel_id=imovel_id, _external=True),
+            'method': 'PUT',
+            'title': 'Atualizar este imóvel'
+        },
+        'delete': {
+            'href': url_for('deletar_imovel_route', imovel_id=imovel_id, _external=True),
+            'method': 'DELETE',
+            'title': 'Remover este imóvel'
+        }
+    }
+    
+    if include_collection:
+        links['collection'] = {
+            'href': url_for('listar_todos_imoveis_route', _external=True),
+            'method': 'GET',
+            'title': 'Listar todos os imóveis'
+        }
+    
+    return links
+
+def build_collection_links():
+    """Build hypermedia links for imoveis collection"""
+    return {
+        'self': {
+            'href': url_for('listar_todos_imoveis_route', _external=True),
+            'method': 'GET',
+            'title': 'Listar todos os imóveis'
+        },
+        'create': {
+            'href': url_for('criar_imovel_route', _external=True),
+            'method': 'POST',
+            'title': 'Criar novo imóvel'
+        },
+        'search_by_type': {
+            'href': url_for('listar_imoveis_por_tipo_route', tipo='{tipo}', _external=True).replace('%7Btipo%7D', '{tipo}'),
+            'method': 'GET',
+            'title': 'Buscar imóveis por tipo',
+            'templated': True
+        },
+        'search_by_city': {
+            'href': url_for('listar_imoveis_por_cidade_route', cidade='{cidade}', _external=True).replace('%7Bcidade%7D', '{cidade}'),
+            'method': 'GET',
+            'title': 'Buscar imóveis por cidade',
+            'templated': True
+        }
+    }
+
+def build_api_root_links():
+    """Build hypermedia links for API root"""
+    return {
+        'self': {
+            'href': url_for('api_info', _external=True),
+            'method': 'GET',
+            'title': 'Informações da API'
+        },
+        'imoveis': {
+            'href': url_for('listar_todos_imoveis_route', _external=True),
+            'method': 'GET',
+            'title': 'Listar todos os imóveis'
+        },
+        'create_imovel': {
+            'href': url_for('criar_imovel_route', _external=True),
+            'method': 'POST',
+            'title': 'Criar novo imóvel'
+        },
+        'health': {
+            'href': url_for('health_check', _external=True),
+            'method': 'GET',
+            'title': 'Verificar status da API'
+        }
+    }
+
+def enhance_imovel_with_links(imovel):
+    """Add HATEOAS links to a single imovel object"""
+    if imovel and 'id' in imovel:
+        imovel['_links'] = build_imovel_links(imovel['id'])
+    return imovel
+
+def enhance_imoveis_collection_with_links(imoveis):
+    """Add HATEOAS links to each imovel in a collection"""
+    enhanced_imoveis = []
+    for imovel in imoveis:
+        enhanced_imoveis.append(enhance_imovel_with_links(imovel.copy()))
+    return enhanced_imoveis
 
 # Middleware para tratamento de erros
 @app.errorhandler(404)
@@ -167,22 +262,55 @@ def validate_imovel_data(data, is_update=False):
 # Rota raiz para informações da API
 @app.route('/', methods=['GET'])
 def api_info():
-    """Informações básicas da API"""
-    return jsonify({
-        'api': 'API RESTful de Imóveis',
-        'version': '1.0.0',
-        'description': 'API para gerenciamento de imóveis de uma empresa imobiliária',
-        'endpoints': {
-            'GET /imoveis': 'Listar todos os imóveis',
-            'GET /imoveis/<id>': 'Obter imóvel específico por ID',
-            'POST /imoveis': 'Criar novo imóvel',
-            'PUT /imoveis/<id>': 'Atualizar imóvel existente',
-            'DELETE /imoveis/<id>': 'Remover imóvel',
-            'GET /imoveis/tipo/<tipo>': 'Listar imóveis por tipo',
-            'GET /imoveis/cidade/<cidade>': 'Listar imóveis por cidade'
-        },
-        'status': 'online'
-    })
+    """Informações básicas da API com hypermedia para descoberta"""
+    try:
+        # Get basic stats for the API overview
+        imoveis = listar_todos_imoveis()
+        total_imoveis = len(imoveis)
+        
+        # Get unique types and cities for search hints
+        tipos_unicos = list(set(imovel['tipo'] for imovel in imoveis if imovel.get('tipo')))
+        cidades_unicas = list(set(imovel['cidade'] for imovel in imoveis if imovel.get('cidade')))
+        
+        return jsonify({
+            'api': 'API RESTful de Imóveis - Nível 3 (HATEOAS)',
+            'version': '2.0.0',
+            'description': 'API para gerenciamento de imóveis de uma empresa imobiliária com suporte completo a HATEOAS',
+            'richardson_level': 3,
+            'features': [
+                'CRUD completo de imóveis',
+                'Busca por tipo e cidade',
+                'Navegação descobrível via links',
+                'Validação robusta de dados',
+                'Tratamento de erros padronizado'
+            ],
+            'statistics': {
+                'total_imoveis': total_imoveis,
+                'tipos_disponiveis': sorted(tipos_unicos),
+                'cidades_disponiveis': sorted(cidades_unicas[:10])  # Limit to first 10 for brevity
+            },
+            'media_types': {
+                'accepted': ['application/json'],
+                'returned': ['application/json']
+            },
+            'documentation': {
+                'hateoas': 'Esta API implementa HATEOAS - use os links _links para navegar entre recursos',
+                'templated_urls': 'URLs com {parametro} são templates - substitua pelos valores desejados'
+            },
+            '_links': build_api_root_links()
+        }), 200
+        
+    except Exception as e:
+        # Even if there's an error getting stats, provide the basic API info
+        return jsonify({
+            'api': 'API RESTful de Imóveis - Nível 3 (HATEOAS)',
+            'version': '2.0.0',
+            'description': 'API para gerenciamento de imóveis de uma empresa imobiliária com suporte completo a HATEOAS',
+            'richardson_level': 3,
+            'status': 'online_with_warnings',
+            'warning': 'Não foi possível carregar estatísticas completas',
+            '_links': build_api_root_links()
+        }), 200
 
 # 1. Listar todos os imóveis
 @app.route('/imoveis', methods=['GET'])
@@ -191,18 +319,25 @@ def listar_todos_imoveis_route():
     try:
         imoveis = listar_todos_imoveis()
         
-        return jsonify({
+        # Add HATEOAS links to each imovel
+        enhanced_imoveis = enhance_imoveis_collection_with_links(imoveis)
+        
+        response_data = {
             'success': True,
-            'message': f'{len(imoveis)} imóveis encontrados',
-            'data': imoveis,
-            'total': len(imoveis)
-        }), 200
+            'message': f'{len(enhanced_imoveis)} imóveis encontrados',
+            'data': enhanced_imoveis,
+            'total': len(enhanced_imoveis),
+            '_links': build_collection_links()
+        }
+        
+        return jsonify(response_data), 200
         
     except FileNotFoundError as e:
         return jsonify({
             'success': False,
             'error': 'Database não encontrada',
-            'message': str(e)
+            'message': str(e),
+            '_links': build_api_root_links()
         }), 503
         
     except Exception as e:
@@ -219,13 +354,29 @@ def obter_imovel_por_id_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Imóvel não encontrado',
-                'message': f'Nenhum imóvel encontrado com ID {imovel_id}'
+                'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
+                '_links': {
+                    'collection': {
+                        'href': url_for('listar_todos_imoveis_route', _external=True),
+                        'method': 'GET',
+                        'title': 'Listar todos os imóveis'
+                    },
+                    'create': {
+                        'href': url_for('criar_imovel_route', _external=True),
+                        'method': 'POST',
+                        'title': 'Criar novo imóvel'
+                    }
+                }
             }), 404
             
+        # Add HATEOAS links to the imovel
+        enhanced_imovel = enhance_imovel_with_links(imovel)
+        
         return jsonify({
             'success': True,
             'message': 'Imóvel encontrado com sucesso',
-            'data': imovel
+            'data': enhanced_imovel,
+            '_links': build_collection_links()
         }), 200
         
     except Exception as e:
@@ -241,7 +392,8 @@ def criar_imovel_route():
             return jsonify({
                 'success': False,
                 'error': 'Content-Type deve ser application/json',
-                'message': 'A requisição deve conter dados JSON válidos'
+                'message': 'A requisição deve conter dados JSON válidos',
+                '_links': build_collection_links()
             }), 400
             
         data = request.get_json()
@@ -255,7 +407,8 @@ def criar_imovel_route():
                 'success': False,
                 'error': 'Campos obrigatórios ausentes',
                 'message': f'Os seguintes campos são obrigatórios: {", ".join(missing_fields)}',
-                'required_fields': required_fields
+                'required_fields': required_fields,
+                '_links': build_collection_links()
             }), 422
         
         # Validar se os campos de texto não estão vazios
@@ -264,12 +417,14 @@ def criar_imovel_route():
             return jsonify({
                 'success': False,
                 'error': 'Campos vazios detectados',
-                'message': f'Os seguintes campos não podem estar vazios: {", ".join(empty_fields)}'
+                'message': f'Os seguintes campos não podem estar vazios: {", ".join(empty_fields)}',
+                '_links': build_collection_links()
             }), 422
         
         # Usar função de validação centralizada
         error_response, status_code = validate_imovel_data(data)
         if error_response:
+            error_response['_links'] = build_collection_links()
             return jsonify(error_response), status_code
         
         # Inserir imóvel
@@ -286,11 +441,42 @@ def criar_imovel_route():
         
         # Buscar o imóvel criado para retornar
         imovel_criado = listar_imovel_por_id(novo_id)
+        enhanced_imovel = enhance_imovel_with_links(imovel_criado)
+        
+        # Build links for the created resource
+        creation_links = {
+            'self': {
+                'href': url_for('obter_imovel_por_id_route', imovel_id=novo_id, _external=True),
+                'method': 'GET',
+                'title': 'Ver imóvel criado'
+            },
+            'edit': {
+                'href': url_for('atualizar_imovel_route', imovel_id=novo_id, _external=True),
+                'method': 'PUT',
+                'title': 'Editar este imóvel'
+            },
+            'delete': {
+                'href': url_for('deletar_imovel_route', imovel_id=novo_id, _external=True),
+                'method': 'DELETE',
+                'title': 'Remover este imóvel'
+            },
+            'collection': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Listar todos os imóveis'
+            },
+            'create_another': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar outro imóvel'
+            }
+        }
         
         return jsonify({
             'success': True,
             'message': 'Imóvel criado com sucesso',
-            'data': imovel_criado
+            'data': enhanced_imovel,
+            '_links': creation_links
         }), 201
         
     except Exception as e:
@@ -307,7 +493,19 @@ def atualizar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Imóvel não encontrado',
-                'message': f'Nenhum imóvel encontrado com ID {imovel_id}'
+                'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
+                '_links': {
+                    'collection': {
+                        'href': url_for('listar_todos_imoveis_route', _external=True),
+                        'method': 'GET',
+                        'title': 'Listar todos os imóveis'
+                    },
+                    'create': {
+                        'href': url_for('criar_imovel_route', _external=True),
+                        'method': 'POST',
+                        'title': 'Criar novo imóvel'
+                    }
+                }
             }), 404
             
         # Validar se o request contém JSON
@@ -315,7 +513,8 @@ def atualizar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Content-Type deve ser application/json',
-                'message': 'A requisição deve conter dados JSON válidos'
+                'message': 'A requisição deve conter dados JSON válidos',
+                '_links': build_imovel_links(imovel_id)
             }), 400
             
         data = request.get_json()
@@ -323,6 +522,7 @@ def atualizar_imovel_route(imovel_id):
         # Usar função de validação centralizada
         error_response, status_code = validate_imovel_data(data, is_update=True)
         if error_response:
+            error_response['_links'] = build_imovel_links(imovel_id)
             return jsonify(error_response), status_code
         
         # Preparar argumentos para atualização (apenas campos fornecidos)
@@ -350,7 +550,8 @@ def atualizar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Nenhum campo para atualizar',
-                'message': 'Pelo menos um campo deve ser fornecido para atualização'
+                'message': 'Pelo menos um campo deve ser fornecido para atualização',
+                '_links': build_imovel_links(imovel_id)
             }), 422
         
         # Atualizar imóvel
@@ -360,16 +561,48 @@ def atualizar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Falha na atualização',
-                'message': 'Não foi possível atualizar o imóvel'
+                'message': 'Não foi possível atualizar o imóvel',
+                '_links': build_imovel_links(imovel_id)
             }), 500
         
         # Buscar imóvel atualizado
         imovel_atualizado = listar_imovel_por_id(imovel_id)
+        enhanced_imovel = enhance_imovel_with_links(imovel_atualizado)
+        
+        # Build links showing available actions after update
+        update_links = {
+            'self': {
+                'href': url_for('obter_imovel_por_id_route', imovel_id=imovel_id, _external=True),
+                'method': 'GET',
+                'title': 'Ver imóvel atualizado'
+            },
+            'edit_again': {
+                'href': url_for('atualizar_imovel_route', imovel_id=imovel_id, _external=True),
+                'method': 'PUT',
+                'title': 'Editar novamente'
+            },
+            'delete': {
+                'href': url_for('deletar_imovel_route', imovel_id=imovel_id, _external=True),
+                'method': 'DELETE',
+                'title': 'Remover este imóvel'
+            },
+            'collection': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Listar todos os imóveis'
+            },
+            'create_similar': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar imóvel similar'
+            }
+        }
         
         return jsonify({
             'success': True,
             'message': 'Imóvel atualizado com sucesso',
-            'data': imovel_atualizado
+            'data': enhanced_imovel,
+            '_links': update_links
         }), 200
         
     except Exception as e:
@@ -386,7 +619,19 @@ def deletar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Imóvel não encontrado',
-                'message': f'Nenhum imóvel encontrado com ID {imovel_id}'
+                'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
+                '_links': {
+                    'collection': {
+                        'href': url_for('listar_todos_imoveis_route', _external=True),
+                        'method': 'GET',
+                        'title': 'Listar todos os imóveis'
+                    },
+                    'create': {
+                        'href': url_for('criar_imovel_route', _external=True),
+                        'method': 'POST',
+                        'title': 'Criar novo imóvel'
+                    }
+                }
             }), 404
         
         # Deletar imóvel
@@ -396,13 +641,34 @@ def deletar_imovel_route(imovel_id):
             return jsonify({
                 'success': False,
                 'error': 'Falha na remoção',
-                'message': 'Não foi possível remover o imóvel'
+                'message': 'Não foi possível remover o imóvel',
+                '_links': build_imovel_links(imovel_id)
             }), 500
+        
+        # Build links for after deletion
+        deletion_links = {
+            'collection': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Listar todos os imóveis'
+            },
+            'create': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar novo imóvel'
+            },
+            'create_similar': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar imóvel similar ao removido'
+            }
+        }
         
         return jsonify({
             'success': True,
             'message': f'Imóvel com ID {imovel_id} removido com sucesso',
-            'data': imovel_existe  # Retorna os dados do imóvel removido
+            'data': imovel_existe,  # Retorna os dados do imóvel removido
+            '_links': deletion_links
         }), 200
         
     except Exception as e:
@@ -415,15 +681,46 @@ def listar_imoveis_por_tipo_route(tipo):
     try:
         imoveis = listar_imoveis_por_tipo(tipo)
         
-        return jsonify({
+        # Add HATEOAS links to each imovel
+        enhanced_imoveis = enhance_imoveis_collection_with_links(imoveis)
+        
+        # Build specific links for this filtered collection
+        filter_links = {
+            'self': {
+                'href': url_for('listar_imoveis_por_tipo_route', tipo=tipo, _external=True),
+                'method': 'GET',
+                'title': f'Imóveis do tipo "{tipo}"'
+            },
+            'collection': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Todos os imóveis'
+            },
+            'create': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar novo imóvel'
+            },
+            'search_by_city': {
+                'href': url_for('listar_imoveis_por_cidade_route', cidade='{cidade}', _external=True).replace('%7Bcidade%7D', '{cidade}'),
+                'method': 'GET',
+                'title': 'Buscar imóveis por cidade',
+                'templated': True
+            }
+        }
+        
+        response_data = {
             'success': True,
-            'message': f'{len(imoveis)} imóveis do tipo "{tipo}" encontrados',
-            'data': imoveis,
+            'message': f'{len(enhanced_imoveis)} imóveis do tipo "{tipo}" encontrados',
+            'data': enhanced_imoveis,
             'filtro': {
                 'tipo': tipo
             },
-            'total': len(imoveis)
-        }), 200
+            'total': len(enhanced_imoveis),
+            '_links': filter_links
+        }
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return handle_database_error(e)
@@ -435,15 +732,46 @@ def listar_imoveis_por_cidade_route(cidade):
     try:
         imoveis = listar_imoveis_por_cidade(cidade)
         
-        return jsonify({
+        # Add HATEOAS links to each imovel
+        enhanced_imoveis = enhance_imoveis_collection_with_links(imoveis)
+        
+        # Build specific links for this filtered collection
+        filter_links = {
+            'self': {
+                'href': url_for('listar_imoveis_por_cidade_route', cidade=cidade, _external=True),
+                'method': 'GET',
+                'title': f'Imóveis da cidade "{cidade}"'
+            },
+            'collection': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Todos os imóveis'
+            },
+            'create': {
+                'href': url_for('criar_imovel_route', _external=True),
+                'method': 'POST',
+                'title': 'Criar novo imóvel'
+            },
+            'search_by_type': {
+                'href': url_for('listar_imoveis_por_tipo_route', tipo='{tipo}', _external=True).replace('%7Btipo%7D', '{tipo}'),
+                'method': 'GET',
+                'title': 'Buscar imóveis por tipo',
+                'templated': True
+            }
+        }
+        
+        response_data = {
             'success': True,
-            'message': f'{len(imoveis)} imóveis na cidade "{cidade}" encontrados',
-            'data': imoveis,
+            'message': f'{len(enhanced_imoveis)} imóveis na cidade "{cidade}" encontrados',
+            'data': enhanced_imoveis,
             'filtro': {
                 'cidade': cidade
             },
-            'total': len(imoveis)
-        }), 200
+            'total': len(enhanced_imoveis),
+            '_links': filter_links
+        }
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return handle_database_error(e)
@@ -455,17 +783,53 @@ def health_check():
     try:
         # Tenta fazer uma consulta simples no banco
         imoveis = listar_todos_imoveis()
+        
+        health_links = {
+            'self': {
+                'href': url_for('health_check', _external=True),
+                'method': 'GET',
+                'title': 'Status da API'
+            },
+            'api_root': {
+                'href': url_for('api_info', _external=True),
+                'method': 'GET',
+                'title': 'Informações da API'
+            },
+            'imoveis': {
+                'href': url_for('listar_todos_imoveis_route', _external=True),
+                'method': 'GET',
+                'title': 'Listar imóveis'
+            }
+        }
+        
         return jsonify({
             'status': 'healthy',
             'message': 'API funcionando corretamente',
             'database': 'connected',
-            'total_imoveis': len(imoveis)
+            'total_imoveis': len(imoveis),
+            'timestamp': datetime.now().isoformat(),
+            '_links': health_links
         }), 200
     except Exception as e:
+        error_links = {
+            'self': {
+                'href': url_for('health_check', _external=True),
+                'method': 'GET',
+                'title': 'Status da API'
+            },
+            'api_root': {
+                'href': url_for('api_info', _external=True),
+                'method': 'GET',
+                'title': 'Informações da API'
+            }
+        }
+        
         return jsonify({
             'status': 'unhealthy',
             'message': 'Problemas na API',
-            'error': str(e)
+            'error': str(e),
+            'timestamp': datetime.now().isoformat(),
+            '_links': error_links
         }), 503
 
 if __name__ == '__main__':
