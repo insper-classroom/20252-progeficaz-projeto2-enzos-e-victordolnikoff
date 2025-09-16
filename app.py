@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, url_for
 from func import *
 import re
 from datetime import datetime
+from collections import OrderedDict
 
 app = Flask(__name__)
 
@@ -92,9 +93,26 @@ def build_api_root_links():
     }
 
 def enhance_imovel_with_links(imovel):
-    """Add HATEOAS links to a single imovel object"""
+    """Add HATEOAS links to a single imovel object with data fields first"""
     if imovel and 'id' in imovel:
-        imovel['_links'] = build_imovel_links(imovel['id'])
+        # Use OrderedDict to guarantee field order
+        enhanced_imovel = OrderedDict()
+        
+        # Add all original fields first in a specific order
+        enhanced_imovel['id'] = imovel.get('id')
+        enhanced_imovel['logradouro'] = imovel.get('logradouro')
+        enhanced_imovel['tipo_logradouro'] = imovel.get('tipo_logradouro')
+        enhanced_imovel['bairro'] = imovel.get('bairro')
+        enhanced_imovel['cidade'] = imovel.get('cidade')
+        enhanced_imovel['cep'] = imovel.get('cep')
+        enhanced_imovel['tipo'] = imovel.get('tipo')
+        enhanced_imovel['valor'] = imovel.get('valor')
+        enhanced_imovel['data_aquisicao'] = imovel.get('data_aquisicao')
+        
+        # Add links at the end
+        enhanced_imovel['link'] = build_imovel_links(imovel['id'])
+        
+        return enhanced_imovel
     return imovel
 
 def enhance_imoveis_collection_with_links(imoveis):
@@ -294,10 +312,10 @@ def api_info():
                 'returned': ['application/json']
             },
             'documentation': {
-                'hateoas': 'Esta API implementa HATEOAS - use os links _links para navegar entre recursos',
+                'hateoas': 'Esta API implementa HATEOAS - use os links link para navegar entre recursos',
                 'templated_urls': 'URLs com {parametro} são templates - substitua pelos valores desejados'
             },
-            '_links': build_api_root_links()
+            'link': build_api_root_links()
         }), 200
         
     except Exception as e:
@@ -309,7 +327,7 @@ def api_info():
             'richardson_level': 3,
             'status': 'online_with_warnings',
             'warning': 'Não foi possível carregar estatísticas completas',
-            '_links': build_api_root_links()
+            'link': build_api_root_links()
         }), 200
 
 # 1. Listar todos os imóveis
@@ -322,13 +340,14 @@ def listar_todos_imoveis_route():
         # Add HATEOAS links to each imovel
         enhanced_imoveis = enhance_imoveis_collection_with_links(imoveis)
         
-        response_data = {
-            'success': True,
-            'message': f'{len(enhanced_imoveis)} imóveis encontrados',
-            'data': enhanced_imoveis,
-            'total': len(enhanced_imoveis),
-            '_links': build_collection_links()
-        }
+        # Use OrderedDict to control response structure
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', f'{len(enhanced_imoveis)} imóveis encontrados'),
+            ('total', len(enhanced_imoveis)),
+            ('links', build_collection_links()),
+            ('data', enhanced_imoveis),
+        ])
         
         return jsonify(response_data), 200
         
@@ -337,7 +356,7 @@ def listar_todos_imoveis_route():
             'success': False,
             'error': 'Database não encontrada',
             'message': str(e),
-            '_links': build_api_root_links()
+            'link': build_api_root_links()
         }), 503
         
     except Exception as e:
@@ -355,7 +374,7 @@ def obter_imovel_por_id_route(imovel_id):
                 'success': False,
                 'error': 'Imóvel não encontrado',
                 'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
-                '_links': {
+                'link': {
                     'collection': {
                         'href': url_for('listar_todos_imoveis_route', _external=True),
                         'method': 'GET',
@@ -372,12 +391,15 @@ def obter_imovel_por_id_route(imovel_id):
         # Add HATEOAS links to the imovel
         enhanced_imovel = enhance_imovel_with_links(imovel)
         
-        return jsonify({
-            'success': True,
-            'message': 'Imóvel encontrado com sucesso',
-            'data': enhanced_imovel,
-            '_links': build_collection_links()
-        }), 200
+        # Use OrderedDict to control response structure
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', 'Imóvel encontrado com sucesso'),
+            ('link', build_collection_links()),
+            ('data', enhanced_imovel),
+        ])
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return handle_database_error(e)
@@ -393,7 +415,7 @@ def criar_imovel_route():
                 'success': False,
                 'error': 'Content-Type deve ser application/json',
                 'message': 'A requisição deve conter dados JSON válidos',
-                '_links': build_collection_links()
+                'link': build_collection_links()
             }), 400
             
         data = request.get_json()
@@ -408,7 +430,7 @@ def criar_imovel_route():
                 'error': 'Campos obrigatórios ausentes',
                 'message': f'Os seguintes campos são obrigatórios: {", ".join(missing_fields)}',
                 'required_fields': required_fields,
-                '_links': build_collection_links()
+                'link': build_collection_links()
             }), 422
         
         # Validar se os campos de texto não estão vazios
@@ -418,13 +440,13 @@ def criar_imovel_route():
                 'success': False,
                 'error': 'Campos vazios detectados',
                 'message': f'Os seguintes campos não podem estar vazios: {", ".join(empty_fields)}',
-                '_links': build_collection_links()
+                'link': build_collection_links()
             }), 422
         
         # Usar função de validação centralizada
         error_response, status_code = validate_imovel_data(data)
         if error_response:
-            error_response['_links'] = build_collection_links()
+            error_response['link'] = build_collection_links()
             return jsonify(error_response), status_code
         
         # Inserir imóvel
@@ -472,12 +494,15 @@ def criar_imovel_route():
             }
         }
         
-        return jsonify({
-            'success': True,
-            'message': 'Imóvel criado com sucesso',
-            'data': enhanced_imovel,
-            '_links': creation_links
-        }), 201
+        # Use OrderedDict for the response
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', 'Imóvel criado com sucesso'),
+            ('data', enhanced_imovel),
+            ('link', creation_links)
+        ])
+        
+        return jsonify(response_data), 201
         
     except Exception as e:
         return handle_database_error(e)
@@ -494,7 +519,7 @@ def atualizar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Imóvel não encontrado',
                 'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
-                '_links': {
+                'link': {
                     'collection': {
                         'href': url_for('listar_todos_imoveis_route', _external=True),
                         'method': 'GET',
@@ -514,7 +539,7 @@ def atualizar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Content-Type deve ser application/json',
                 'message': 'A requisição deve conter dados JSON válidos',
-                '_links': build_imovel_links(imovel_id)
+                'link': build_imovel_links(imovel_id)
             }), 400
             
         data = request.get_json()
@@ -522,7 +547,7 @@ def atualizar_imovel_route(imovel_id):
         # Usar função de validação centralizada
         error_response, status_code = validate_imovel_data(data, is_update=True)
         if error_response:
-            error_response['_links'] = build_imovel_links(imovel_id)
+            error_response['link'] = build_imovel_links(imovel_id)
             return jsonify(error_response), status_code
         
         # Preparar argumentos para atualização (apenas campos fornecidos)
@@ -551,7 +576,7 @@ def atualizar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Nenhum campo para atualizar',
                 'message': 'Pelo menos um campo deve ser fornecido para atualização',
-                '_links': build_imovel_links(imovel_id)
+                'link': build_imovel_links(imovel_id)
             }), 422
         
         # Atualizar imóvel
@@ -562,7 +587,7 @@ def atualizar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Falha na atualização',
                 'message': 'Não foi possível atualizar o imóvel',
-                '_links': build_imovel_links(imovel_id)
+                'link': build_imovel_links(imovel_id)
             }), 500
         
         # Buscar imóvel atualizado
@@ -598,12 +623,15 @@ def atualizar_imovel_route(imovel_id):
             }
         }
         
-        return jsonify({
-            'success': True,
-            'message': 'Imóvel atualizado com sucesso',
-            'data': enhanced_imovel,
-            '_links': update_links
-        }), 200
+        # Use OrderedDict for the response
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', 'Imóvel atualizado com sucesso'),
+            ('data', enhanced_imovel),
+            ('link', update_links)
+        ])
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return handle_database_error(e)
@@ -620,7 +648,7 @@ def deletar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Imóvel não encontrado',
                 'message': f'Nenhum imóvel encontrado com ID {imovel_id}',
-                '_links': {
+                'link': {
                     'collection': {
                         'href': url_for('listar_todos_imoveis_route', _external=True),
                         'method': 'GET',
@@ -642,7 +670,7 @@ def deletar_imovel_route(imovel_id):
                 'success': False,
                 'error': 'Falha na remoção',
                 'message': 'Não foi possível remover o imóvel',
-                '_links': build_imovel_links(imovel_id)
+                'link': build_imovel_links(imovel_id)
             }), 500
         
         # Build links for after deletion
@@ -664,12 +692,15 @@ def deletar_imovel_route(imovel_id):
             }
         }
         
-        return jsonify({
-            'success': True,
-            'message': f'Imóvel com ID {imovel_id} removido com sucesso',
-            'data': imovel_existe,  # Retorna os dados do imóvel removido
-            '_links': deletion_links
-        }), 200
+        # Use OrderedDict for the response
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', f'Imóvel com ID {imovel_id} removido com sucesso',
+            'data', imovel_existe),
+            ('link', deletion_links)
+        ])
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return handle_database_error(e)
@@ -709,16 +740,16 @@ def listar_imoveis_por_tipo_route(tipo):
             }
         }
         
-        response_data = {
-            'success': True,
-            'message': f'{len(enhanced_imoveis)} imóveis do tipo "{tipo}" encontrados',
-            'data': enhanced_imoveis,
-            'filtro': {
-                'tipo': tipo
-            },
-            'total': len(enhanced_imoveis),
-            '_links': filter_links
-        }
+        # Use OrderedDict to control response structure
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', f'{len(enhanced_imoveis)} imóveis do tipo "{tipo}" encontrados'),
+            ('total', len(enhanced_imoveis)),
+            ('filtro', {'tipo': tipo}),
+            ('link', filter_links),
+
+            ('data', enhanced_imoveis),
+        ])
         
         return jsonify(response_data), 200
         
@@ -760,16 +791,15 @@ def listar_imoveis_por_cidade_route(cidade):
             }
         }
         
-        response_data = {
-            'success': True,
-            'message': f'{len(enhanced_imoveis)} imóveis na cidade "{cidade}" encontrados',
-            'data': enhanced_imoveis,
-            'filtro': {
-                'cidade': cidade
-            },
-            'total': len(enhanced_imoveis),
-            '_links': filter_links
-        }
+        # Use OrderedDict to control response structure
+        response_data = OrderedDict([
+            ('success', True),
+            ('message', f'{len(enhanced_imoveis)} imóveis na cidade "{cidade}" encontrados'),
+            ('total', len(enhanced_imoveis)),
+            ('filtro', {'cidade': cidade}),
+            ('link', filter_links),
+            ('data', enhanced_imoveis),
+        ])
         
         return jsonify(response_data), 200
         
@@ -808,7 +838,7 @@ def health_check():
             'database': 'connected',
             'total_imoveis': len(imoveis),
             'timestamp': datetime.now().isoformat(),
-            '_links': health_links
+            'link': health_links
         }), 200
     except Exception as e:
         error_links = {
@@ -829,7 +859,7 @@ def health_check():
             'message': 'Problemas na API',
             'error': str(e),
             'timestamp': datetime.now().isoformat(),
-            '_links': error_links
+            'link': error_links
         }), 503
 
 if __name__ == '__main__':
